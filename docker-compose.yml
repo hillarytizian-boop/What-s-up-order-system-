@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  # ── MongoDB ──────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: wabot_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: whatsapp_order_bot
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - wabot_net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── WhatsApp Order Bot ────────────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: wabot_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      MONGODB_URI_PROD: mongodb://admin:password@mongo:27017/whatsapp_order_bot?authSource=admin
+      PORT: 3000
+    env_file:
+      - .env
+    volumes:
+      - session_data:/app/.wwebjs_auth
+      - cache_data:/app/.wwebjs_cache
+      - log_data:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - wabot_net
+
+networks:
+  wabot_net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  session_data:
+  cache_data:
+  log_data:
