@@ -1,14 +1,21 @@
-const express = require('express');
-const path = require('path');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const { v4: uuidv4 } = require('uuid');
-const sqlite = require('better-sqlite3');
-require('dotenv').config();
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { v4 as uuidv4 } from 'uuid';
+import sqlite from 'better-sqlite3';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const db = new sqlite('restaurant.db');
 
+// Database init
 db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
         id TEXT PRIMARY KEY,
@@ -35,6 +42,7 @@ db.exec(`
     );
 `);
 
+// Seed sample menu if empty
 const menuCount = db.prepare('SELECT COUNT(*) as count FROM menu').get();
 if (menuCount.count === 0) {
     const insert = db.prepare('INSERT INTO menu (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)');
@@ -75,8 +83,10 @@ app.get('/api/orders/:id', (req, res) => {
     res.json(order);
 });
 
+// Serve static files from 'dist' (built React app)
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Catch-all: serve index.html for client-side routing
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
