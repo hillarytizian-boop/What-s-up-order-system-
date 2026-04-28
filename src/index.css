@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
-/* Force cart buttons to be visible – safety override */
-.menu-card button, .add-to-cart, [class*="add-to-cart"] {
+/* Force cart buttons to be visible – safety fix */
+.menu-card button,
+.add-to-cart,
+[class*="add-to-cart"] {
   display: inline-flex !important;
   visibility: visible !important;
   opacity: 1 !important;
@@ -11,4 +13,3 @@
   border-radius: 0.75rem !important;
   font-weight: 600 !important;
 }
-
