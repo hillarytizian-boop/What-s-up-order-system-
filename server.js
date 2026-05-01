@@ -15,6 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const db = new sqlite('restaurant.db');
 
+// Database init (same as before)
 db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
         id TEXT PRIMARY KEY,
@@ -41,6 +42,7 @@ db.exec(`
     );
 `);
 
+// Seed sample menu if empty (only runs once)
 const menuCount = db.prepare('SELECT COUNT(*) as count FROM menu').get();
 if (menuCount.count === 0) {
     const insert = db.prepare('INSERT INTO menu (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)');
@@ -71,7 +73,7 @@ app.post('/api/orders', (req, res) => {
     const orderId = uuidv4().substring(0, 8).toUpperCase();
     const stmt = db.prepare(`INSERT INTO orders (id, table_id, customer_name, items, total, payment_method, customer_note)
                              VALUES (?, ?, ?, ?, ?, ?, ?)`);
-    stmt.run(orderId, tableId, customerName, JSON.stringify(items), total, paymentMethod, customerNote);
+    stmt.run(orderId, tableId || null, customerName || 'Guest', JSON.stringify(items), total, paymentMethod || 'table', customerNote || '');
     res.json({ success: true, orderId });
 });
 
@@ -81,8 +83,10 @@ app.get('/api/orders/:id', (req, res) => {
     res.json(order);
 });
 
+// ========== CRITICAL: Serve static files from 'dist' ==========
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Catch-all: serve index.html for client-side routing
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });

@@ -11,22 +11,22 @@
     "postinstall": "npm run build"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "express-rate-limit": "^6.7.0",
-    "helmet": "^7.0.0",
     "better-sqlite3": "^9.0.0",
-    "uuid": "^9.0.0",
-    "dotenv": "^16.0.3",
     "clsx": "2.1.1",
     "crypto-js": "^4.2.0",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "express-rate-limit": "^6.7.0",
     "framer-motion": "^12.38.0",
+    "helmet": "^7.0.0",
     "lucide-react": "^1.9.0",
     "otpauth": "^9.5.0",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-router-dom": "^7.14.2",
-    "tailwind-merge": "3.4.0"
+    "tailwind-merge": "3.4.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.17",
