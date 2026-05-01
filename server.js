@@ -15,7 +15,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const db = new sqlite('restaurant.db');
 
-// Database init
 db.exec(`
     CREATE TABLE IF NOT EXISTS orders (
         id TEXT PRIMARY KEY,
@@ -35,10 +34,7 @@ db.exec(`
         price REAL,
         description TEXT,
         image TEXT,
-        available INTEGER DEFAULT 1,
-        popular INTEGER DEFAULT 0,
-        spicy INTEGER DEFAULT 0,
-        vegan INTEGER DEFAULT 0
+        available INTEGER DEFAULT 1
     );
 `);
 
@@ -46,12 +42,21 @@ const menuCount = db.prepare('SELECT COUNT(*) as count FROM menu').get();
 if (menuCount.count === 0) {
     const insert = db.prepare('INSERT INTO menu (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)');
     const items = [
-        ['Classic Burger', 'burgers', 8.99, 'Beef patty, lettuce, tomato, cheese', '/images/burger.jpg'],
-        ['Margherita Pizza', 'pizza', 12.99, 'Fresh mozzarella, basil, tomatoes', '/images/pizza.jpg'],
-        ['Caesar Salad', 'salads', 7.99, 'Romaine, parmesan, croutons', '/images/salad.jpg'],
-        ['Pasta Carbonara', 'pasta', 11.99, 'Creamy sauce, pancetta, egg', '/images/pasta.jpg'],
-        ['Chocolate Cake', 'desserts', 5.99, 'Rich chocolate cake', '/images/dessert.jpg'],
-        ['Coca Cola', 'drinks', 2.49, 'Regular soda', '/images/drinks.jpg']
+        ['Classic Smash Burger', 'burgers', 14.99, 'Double patty, aged cheddar, special sauce', '/images/burger.jpg'],
+        ['BBQ Bacon Stack', 'burgers', 17.99, 'Triple patty, BBQ sauce, bacon, jalapeños', '/images/burger.jpg'],
+        ['Vegan Garden Burger', 'burgers', 13.99, 'Black bean patty, avocado, arugula', '/images/burger.jpg'],
+        ['Margherita Classica', 'pizza', 16.99, 'San Marzano tomatoes, fresh mozzarella', '/images/pizza.jpg'],
+        ['Truffle Mushroom', 'pizza', 19.99, 'Wild mushrooms, truffle cream, fontina', '/images/pizza.jpg'],
+        ['Spicy Nduja', 'pizza', 18.99, 'Calabrian nduja, stracciatella, honey', '/images/pizza.jpg'],
+        ['Fettuccine Alfredo', 'pasta', 15.99, 'Creamy parmesan sauce, grilled chicken', '/images/pasta.jpg'],
+        ['Spaghetti Cacio e Pepe', 'pasta', 13.99, 'Pecorino Romano, black pepper', '/images/pasta.jpg'],
+        ['Penne Arrabbiata', 'pasta', 12.99, 'Spicy tomato, garlic, chili', '/images/pasta.jpg'],
+        ['Caesar Royale', 'salads', 11.99, 'Romaine, parmesan, croutons', '/images/salad.jpg'],
+        ['Mediterranean Bowl', 'salads', 12.99, 'Quinoa, feta, olives, cucumber', '/images/salad.jpg'],
+        ['Chocolate Lava Cake', 'desserts', 8.99, 'Warm molten cake, vanilla ice cream', '/images/dessert.jpg'],
+        ['Tiramisu Classico', 'desserts', 7.99, 'Mascarpone, espresso, cocoa', '/images/dessert.jpg'],
+        ['Craft Lemonade', 'drinks', 4.99, 'Fresh lemonade, lavender or strawberry', '/images/drinks.jpg'],
+        ['Espresso Martini', 'drinks', 12.99, 'Vodka, espresso, Kahlúa', '/images/drinks.jpg']
     ];
     for (const item of items) insert.run(...item);
 }
@@ -82,13 +87,12 @@ app.get('/api/orders/:id', (req, res) => {
     res.json(order);
 });
 
-// ========== CRITICAL FIX: Serve static files from 'dist' ==========
-console.log('Serving static files from:', path.join(__dirname, 'dist'));
-app.use(express.static(path.join(__dirname, 'dist')));
+// Serve static files from 'public' folder
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Catch-all: serve index.html for client-side routing
+// All other routes go to index.html
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
