@@ -82,7 +82,8 @@ app.get('/api/orders/:id', (req, res) => {
     res.json(order);
 });
 
-// Serve static files from the built frontend (dist)
+// ========== CRITICAL FIX: Serve static files from 'dist' ==========
+console.log('Serving static files from:', path.join(__dirname, 'dist'));
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // Catch-all: serve index.html for client-side routing
