@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Login - TableBite</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container" style="max-width:400px; margin-top:100px">
+    <div class="card shadow">
+        <div class="card-header bg-dark text-white"><h4 class="mb-0">Admin Login</h4></div>
+        <div class="card-body">
+            <form id="loginForm">
+                <div class="mb-3"><label>Email</label><input type="email" id="email" class="form-control" value="admin@tablebite.com" required></div>
+                <div class="mb-3"><label>Password</label><input type="password" id="password" class="form-control" value="admin123" required></div>
+                <button type="submit" class="btn btn-dark w-100">Login</button>
+            </form>
+            <div id="error" class="text-danger mt-2"></div>
+        </div>
+    </div>
+</div>
+<script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                // check if user is admin (we'll fetch user info)
+                const userRes = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${data.token}` } });
+                const userData = await userRes.json();
+                if (userData.isAdmin) {
+                    localStorage.setItem('authToken', data.token);
+                    window.location.href = '/admin.html';
+                } else {
+                    document.getElementById('error').innerText = 'Not an admin account.';
+                }
+            } else {
+                document.getElementById('error').innerText = data.error || 'Login failed';
+            }
+        } catch(err) { document.getElementById('error').innerText = err.message; }
+    });
+</script>
+</body>
+</html>

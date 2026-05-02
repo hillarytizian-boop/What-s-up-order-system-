@@ -170,3 +170,48 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+
+// --- Admin middleware (check if user is admin) ---
+function requireAdmin(req, res, next) {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const user = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(req.user.userId);
+    if (!user || !user.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+    next();
+}
+
+// --- Admin: get all orders ---
+app.get('/api/admin/orders', authenticateToken, requireAdmin, (req, res) => {
+    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+    res.json(orders);
+});
+
+// --- Admin: update order status ---
+app.put('/api/admin/orders/:id/status', authenticateToken, requireAdmin, (req, res) => {
+    const { status } = req.body;
+    const allowed = ['pending', 'preparing', 'ready', 'completed'];
+    if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    const stmt = db.prepare('UPDATE orders SET status = ? WHERE id = ?');
+    stmt.run(status, req.params.id);
+    res.json({ success: true });
+});
+
+// --- Admin: get all menu items (including unavailable) ---
+app.get('/api/admin/menu', authenticateToken, requireAdmin, (req, res) => {
+    const items = db.prepare('SELECT * FROM menu').all();
+    res.json(items);
+});
+
+// --- Admin: update menu item (availability, price, etc.) ---
+app.put('/api/admin/menu/:id', authenticateToken, requireAdmin, (req, res) => {
+    const { available, price, name, description } = req.body;
+    const stmt = db.prepare('UPDATE menu SET available = ?, price = ?, name = ?, description = ? WHERE id = ?');
+    stmt.run(available, price, name, description, req.params.id);
+    res.json({ success: true });
+});
+
+// --- Get current user info (for admin check) ---
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+    const user = db.prepare('SELECT id, email, name, isAdmin FROM users WHERE id = ?').get(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
+});
