@@ -31,10 +31,9 @@
             });
             const data = await res.json();
             if (data.success) {
-                // check if user is admin (we'll fetch user info)
                 const userRes = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${data.token}` } });
                 const userData = await userRes.json();
-                if (userData.isAdmin) {
+                if (userData.role === 'admin') {
                     localStorage.setItem('authToken', data.token);
                     window.location.href = '/admin.html';
                 } else {

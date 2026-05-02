@@ -129,7 +129,7 @@ app.post('/api/auth/register', async (req, res) => {
         const userId = uuidv4();
         db.prepare('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)').run(userId, email, hashed, name || '', 'customer');
         const token = generateToken(userId, email);
-        res.json({ success: true, token, user: { id: userId, email, name } });
+        res.json({ success: true, token, user: { id: userId, email, name, role: 'customer' } });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Registration failed' });
