@@ -215,3 +215,60 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
 });
+
+// --- Role-based middleware ---
+function requireAdmin(req, res, next) {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.userId);
+    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    next();
+}
+
+function requireStaff(req, res, next) {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.userId);
+    if (!user || (user.role !== 'admin' && user.role !== 'staff')) return res.status(403).json({ error: 'Staff access required' });
+    next();
+}
+
+// --- Admin only: manage menu (existing) ---
+app.get('/api/admin/menu', authenticateToken, requireAdmin, (req, res) => {
+    const items = db.prepare('SELECT * FROM menu').all();
+    res.json(items);
+});
+
+app.put('/api/admin/menu/:id', authenticateToken, requireAdmin, (req, res) => {
+    const { available, price, name, description } = req.body;
+    const stmt = db.prepare('UPDATE menu SET available = ?, price = ?, name = ?, description = ? WHERE id = ?');
+    stmt.run(available, price, name, description, req.params.id);
+    res.json({ success: true });
+});
+
+// --- Staff and Admin: view all orders ---
+app.get('/api/staff/orders', authenticateToken, requireStaff, (req, res) => {
+    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+    res.json(orders);
+});
+
+// --- Staff and Admin: update order status ---
+app.put('/api/staff/orders/:id/status', authenticateToken, requireStaff, (req, res) => {
+    const { status } = req.body;
+    const allowed = ['pending', 'preparing', 'ready', 'completed'];
+    if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    const stmt = db.prepare('UPDATE orders SET status = ? WHERE id = ?');
+    stmt.run(status, req.params.id);
+    res.json({ success: true });
+});
+
+// --- Admin only: get all users (optional) ---
+app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
+    const users = db.prepare('SELECT id, email, name, role FROM users').all();
+    res.json(users);
+});
+
+// --- Get current user info (includes role) ---
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+    const user = db.prepare('SELECT id, email, name, role FROM users WHERE id = ?').get(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
+});
