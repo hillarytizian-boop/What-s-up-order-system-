@@ -18,13 +18,14 @@ const app = express();
 const db = new sqlite('restaurant.db');
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_change_me';
 
-// --- Database tables ---
+// --- Create tables ---
 db.exec(`
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         name TEXT,
+        role TEXT DEFAULT 'customer',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS orders (
@@ -52,7 +53,7 @@ db.exec(`
     );
 `);
 
-// Seed sample menu if empty
+// --- Seed menu if empty ---
 const menuCount = db.prepare('SELECT COUNT(*) as count FROM menu').get();
 if (menuCount.count === 0) {
     const insert = db.prepare('INSERT INTO menu (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)');
@@ -76,6 +77,18 @@ if (menuCount.count === 0) {
     for (const item of items) insert.run(...item);
 }
 
+// --- Seed admin and staff users if no users exist ---
+const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
+if (userCount.count === 0) {
+    const adminHash = bcrypt.hashSync('admin123', 10);
+    const staffHash = bcrypt.hashSync('staff123', 10);
+    const insertUser = db.prepare('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)');
+    insertUser.run('admin-1', 'admin@tablebite.com', adminHash, 'Admin', 'admin');
+    insertUser.run('staff-1', 'staff@tablebite.com', staffHash, 'Staff User', 'staff');
+    console.log('Admin and staff users seeded.');
+}
+
+// --- Middleware ---
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json());
 
@@ -92,7 +105,6 @@ function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'Access token required' });
-
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ error: 'Invalid or expired token' });
         req.user = user;
@@ -106,7 +118,7 @@ app.get('/api/menu', (req, res) => {
     res.json(items);
 });
 
-// --- Registration ---
+// --- Auth endpoints ---
 app.post('/api/auth/register', async (req, res) => {
     const { email, password, name } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -115,7 +127,7 @@ app.post('/api/auth/register', async (req, res) => {
         if (existing) return res.status(409).json({ error: 'Email already registered' });
         const hashed = await bcrypt.hash(password, 10);
         const userId = uuidv4();
-        db.prepare('INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)').run(userId, email, hashed, name);
+        db.prepare('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)').run(userId, email, hashed, name || '', 'customer');
         const token = generateToken(userId, email);
         res.json({ success: true, token, user: { id: userId, email, name } });
     } catch (err) {
@@ -124,7 +136,6 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// --- Login ---
 app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -133,10 +144,16 @@ app.post('/api/auth/login', async (req, res) => {
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
     const token = generateToken(user.id, user.email);
-    res.json({ success: true, token, user: { id: user.id, email: user.email, name: user.name } });
+    res.json({ success: true, token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
 });
 
-// --- Create order (authenticated, with location) ---
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+    const user = db.prepare('SELECT id, email, name, role FROM users WHERE id = ?').get(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
+});
+
+// --- Customer order endpoints ---
 app.post('/api/orders', authenticateToken, (req, res) => {
     const { items, total, paymentMethod, customerNote, locationLat, locationLng, tableId } = req.body;
     const userId = req.user.userId;
@@ -147,83 +164,18 @@ app.post('/api/orders', authenticateToken, (req, res) => {
     res.json({ success: true, orderId });
 });
 
-// --- Get authenticated user's orders ---
 app.get('/api/orders/my', authenticateToken, (req, res) => {
     const orders = db.prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC').all(req.user.userId);
     res.json(orders);
 });
 
-// --- Get single order (public, for tracking) ---
 app.get('/api/orders/:id', (req, res) => {
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     res.json(order);
 });
 
-// --- Serve static frontend ---
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Catch‑all: serve index.html for client-side routing
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
-
-// --- Admin middleware (check if user is admin) ---
-function requireAdmin(req, res, next) {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-    const user = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(req.user.userId);
-    if (!user || !user.isAdmin) return res.status(403).json({ error: 'Admin access required' });
-    next();
-}
-
-// --- Admin: get all orders ---
-app.get('/api/admin/orders', authenticateToken, requireAdmin, (req, res) => {
-    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
-    res.json(orders);
-});
-
-// --- Admin: update order status ---
-app.put('/api/admin/orders/:id/status', authenticateToken, requireAdmin, (req, res) => {
-    const { status } = req.body;
-    const allowed = ['pending', 'preparing', 'ready', 'completed'];
-    if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid status' });
-    const stmt = db.prepare('UPDATE orders SET status = ? WHERE id = ?');
-    stmt.run(status, req.params.id);
-    res.json({ success: true });
-});
-
-// --- Admin: get all menu items (including unavailable) ---
-app.get('/api/admin/menu', authenticateToken, requireAdmin, (req, res) => {
-    const items = db.prepare('SELECT * FROM menu').all();
-    res.json(items);
-});
-
-// --- Admin: update menu item (availability, price, etc.) ---
-app.put('/api/admin/menu/:id', authenticateToken, requireAdmin, (req, res) => {
-    const { available, price, name, description } = req.body;
-    const stmt = db.prepare('UPDATE menu SET available = ?, price = ?, name = ?, description = ? WHERE id = ?');
-    stmt.run(available, price, name, description, req.params.id);
-    res.json({ success: true });
-});
-
-// --- Get current user info (for admin check) ---
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-    const user = db.prepare('SELECT id, email, name, isAdmin FROM users WHERE id = ?').get(req.user.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
-});
-
-// --- Role-based middleware ---
-function requireAdmin(req, res, next) {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.userId);
-    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-    next();
-}
-
+// --- Staff & Admin endpoints ---
 function requireStaff(req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.userId);
@@ -231,26 +183,18 @@ function requireStaff(req, res, next) {
     next();
 }
 
-// --- Admin only: manage menu (existing) ---
-app.get('/api/admin/menu', authenticateToken, requireAdmin, (req, res) => {
-    const items = db.prepare('SELECT * FROM menu').all();
-    res.json(items);
-});
+function requireAdmin(req, res, next) {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.userId);
+    if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    next();
+}
 
-app.put('/api/admin/menu/:id', authenticateToken, requireAdmin, (req, res) => {
-    const { available, price, name, description } = req.body;
-    const stmt = db.prepare('UPDATE menu SET available = ?, price = ?, name = ?, description = ? WHERE id = ?');
-    stmt.run(available, price, name, description, req.params.id);
-    res.json({ success: true });
-});
-
-// --- Staff and Admin: view all orders ---
 app.get('/api/staff/orders', authenticateToken, requireStaff, (req, res) => {
     const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
     res.json(orders);
 });
 
-// --- Staff and Admin: update order status ---
 app.put('/api/staff/orders/:id/status', authenticateToken, requireStaff, (req, res) => {
     const { status } = req.body;
     const allowed = ['pending', 'preparing', 'ready', 'completed'];
@@ -260,15 +204,29 @@ app.put('/api/staff/orders/:id/status', authenticateToken, requireStaff, (req, r
     res.json({ success: true });
 });
 
-// --- Admin only: get all users (optional) ---
+app.get('/api/admin/menu', authenticateToken, requireAdmin, (req, res) => {
+    const items = db.prepare('SELECT * FROM menu').all();
+    res.json(items);
+});
+
+app.put('/api/admin/menu/:id', authenticateToken, requireAdmin, (req, res) => {
+    const { available, price, name, description } = req.body;
+    const stmt = db.prepare('UPDATE menu SET available = ?, price = ?, name = ?, description = ? WHERE id = ?');
+    stmt.run(available, price, name, description, req.params.id);
+    res.json({ success: true });
+});
+
 app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
     const users = db.prepare('SELECT id, email, name, role FROM users').all();
     res.json(users);
 });
 
-// --- Get current user info (includes role) ---
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-    const user = db.prepare('SELECT id, email, name, role FROM users WHERE id = ?').get(req.user.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+// --- Serve static frontend ---
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
