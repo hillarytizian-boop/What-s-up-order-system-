@@ -5,9 +5,10 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background: #f4f6f9; }
-        .navbar-brand { font-weight: bold; }
-        .order-card { background: white; border-radius: 16px; margin-bottom: 15px; padding: 15px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+        .order-card, .menu-card-admin, .user-card { background: white; border-radius: 16px; margin-bottom: 15px; padding: 15px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
         .status-badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; }
+        .nav-tabs .nav-link { color: #333; }
+        .nav-tabs .nav-link.active { background-color: #ff4757; color: white; border-color: #ff4757; }
     </style>
 </head>
 <body>
@@ -15,9 +16,50 @@
     <div class="container"><span class="navbar-brand">🍽️ TableBite Admin</span><button id="logoutBtn" class="btn btn-outline-light btn-sm">Logout</button></div>
 </nav>
 <div class="container mt-4">
-    <h3>All Orders</h3>
-    <div id="orders-list" class="mt-3"></div>
+    <ul class="nav nav-tabs" id="adminTabs">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#ordersTab">Orders</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#menuTab">Menu Items</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#usersTab">Users</button></li>
+    </ul>
+    <div class="tab-content mt-3">
+        <!-- Orders Tab -->
+        <div class="tab-pane fade show active" id="ordersTab">
+            <div id="orders-list"></div>
+        </div>
+        <!-- Menu Tab -->
+        <div class="tab-pane fade" id="menuTab">
+            <button id="newMenuItemBtn" class="btn btn-primary mb-3">+ Add New Item</button>
+            <div id="menu-items-list"></div>
+        </div>
+        <!-- Users Tab -->
+        <div class="tab-pane fade" id="usersTab">
+            <div id="users-list"></div>
+        </div>
+    </div>
 </div>
+
+<!-- Modal for editing menu item -->
+<div class="modal fade" id="menuItemModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Edit Menu Item</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <form id="menuItemForm">
+                    <input type="hidden" id="menuItemId">
+                    <div class="mb-2"><label>Name</label><input type="text" id="menuName" class="form-control" required></div>
+                    <div class="mb-2"><label>Category</label><select id="menuCategory" class="form-control"><option>burgers</option><option>pizza</option><option>pasta</option><option>salads</option><option>desserts</option><option>drinks</option></select></div>
+                    <div class="mb-2"><label>Price</label><input type="number" step="0.01" id="menuPrice" class="form-control" required></div>
+                    <div class="mb-2"><label>Description</label><textarea id="menuDescription" class="form-control" rows="2"></textarea></div>
+                    <div class="mb-2"><label>Image URL</label><input type="text" id="menuImage" class="form-control" value="/images/burger.jpg"></div>
+                    <div class="mb-2 form-check"><input type="checkbox" id="menuAvailable" class="form-check-input"> <label class="form-check-label">Available</label></div>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     const token = localStorage.getItem('authToken');
     if (!token) { window.location.href = '/admin-login.html'; }
@@ -30,8 +72,9 @@
         return res.json();
     }
 
+    // --- Orders ---
     async function loadOrders() {
-        const orders = await apiCall('/api/admin/orders');
+        const orders = await apiCall('/api/staff/orders');
         document.getElementById('orders-list').innerHTML = orders.map(order => `
             <div class="order-card">
                 <div class="d-flex justify-content-between align-items-start">
@@ -53,18 +96,133 @@
             select.addEventListener('change', async (e) => {
                 const id = select.dataset.id;
                 const status = select.value;
-                await apiCall(`/api/admin/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+                await apiCall(`/api/staff/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
                 loadOrders();
             });
         });
     }
 
+    // --- Menu CRUD ---
+    async function loadMenu() {
+        const items = await apiCall('/api/admin/menu');
+        document.getElementById('menu-items-list').innerHTML = items.map(item => `
+            <div class="menu-card-admin" data-id="${item.id}">
+                <div class="d-flex justify-content-between">
+                    <div><strong>${item.name}</strong> (${item.category}) - $${item.price}</div>
+                    <div>
+                        <button class="btn btn-sm btn-warning edit-menu" data-id="${item.id}">✏️ Edit</button>
+                        <button class="btn btn-sm btn-danger delete-menu" data-id="${item.id}">🗑️ Delete</button>
+                    </div>
+                </div>
+                <div class="small text-muted">${item.description}</div>
+                <div>Available: ${item.available ? '✅' : '❌'}</div>
+            </div>
+        `).join('');
+        document.querySelectorAll('.edit-menu').forEach(btn => {
+            btn.addEventListener('click', () => editMenuItem(btn.dataset.id));
+        });
+        document.querySelectorAll('.delete-menu').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (confirm('Delete this item?')) {
+                    await apiCall(`/api/admin/menu/${btn.dataset.id}`, { method: 'DELETE' });
+                    loadMenu();
+                }
+            });
+        });
+    }
+
+    async function editMenuItem(id) {
+        const items = await apiCall('/api/admin/menu');
+        const item = items.find(i => i.id == id);
+        if (item) {
+            document.getElementById('menuItemId').value = item.id;
+            document.getElementById('menuName').value = item.name;
+            document.getElementById('menuCategory').value = item.category;
+            document.getElementById('menuPrice').value = item.price;
+            document.getElementById('menuDescription').value = item.description;
+            document.getElementById('menuImage').value = item.image;
+            document.getElementById('menuAvailable').checked = item.available === 1;
+            const modal = new bootstrap.Modal(document.getElementById('menuItemModal'));
+            modal.show();
+        }
+    }
+
+    document.getElementById('menuItemForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('menuItemId').value;
+        const data = {
+            name: document.getElementById('menuName').value,
+            category: document.getElementById('menuCategory').value,
+            price: parseFloat(document.getElementById('menuPrice').value),
+            description: document.getElementById('menuDescription').value,
+            image: document.getElementById('menuImage').value,
+            available: document.getElementById('menuAvailable').checked ? 1 : 0,
+        };
+        if (id) {
+            await apiCall(`/api/admin/menu/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+        } else {
+            await apiCall('/api/admin/menu', { method: 'POST', body: JSON.stringify(data) });
+        }
+        bootstrap.Modal.getInstance(document.getElementById('menuItemModal')).hide();
+        loadMenu();
+    });
+
+    document.getElementById('newMenuItemBtn').addEventListener('click', () => {
+        document.getElementById('menuItemId').value = '';
+        document.getElementById('menuName').value = '';
+        document.getElementById('menuCategory').value = 'burgers';
+        document.getElementById('menuPrice').value = '';
+        document.getElementById('menuDescription').value = '';
+        document.getElementById('menuImage').value = '/images/burger.jpg';
+        document.getElementById('menuAvailable').checked = true;
+        const modal = new bootstrap.Modal(document.getElementById('menuItemModal'));
+        modal.show();
+    });
+
+    // --- Users ---
+    async function loadUsers() {
+        const users = await apiCall('/api/admin/users');
+        document.getElementById('users-list').innerHTML = users.map(user => `
+            <div class="user-card">
+                <div><strong>${user.name || user.email}</strong> (${user.email})</div>
+                <div>Role: 
+                    <select data-id="${user.id}" class="form-select form-select-sm user-role-select" style="width:120px; display:inline-block;">
+                        <option ${user.role === 'customer' ? 'selected' : ''} value="customer">Customer</option>
+                        <option ${user.role === 'staff' ? 'selected' : ''} value="staff">Staff</option>
+                        <option ${user.role === 'admin' ? 'selected' : ''} value="admin">Admin</option>
+                    </select>
+                    <button class="btn btn-sm btn-danger delete-user ms-2" data-id="${user.id}">🗑️</button>
+                </div>
+            </div>
+        `).join('');
+        document.querySelectorAll('.user-role-select').forEach(select => {
+            select.addEventListener('change', async (e) => {
+                const userId = select.dataset.id;
+                const newRole = select.value;
+                await apiCall(`/api/admin/users/${userId}/role`, { method: 'PUT', body: JSON.stringify({ role: newRole }) });
+                loadUsers();
+            });
+        });
+        document.querySelectorAll('.delete-user').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (confirm('Delete this user? All orders will be orphaned.')) {
+                    await apiCall(`/api/admin/users/${btn.dataset.id}`, { method: 'DELETE' });
+                    loadUsers();
+                }
+            });
+        });
+    }
+
+    // --- Logout ---
     document.getElementById('logoutBtn').addEventListener('click', () => {
         localStorage.removeItem('authToken');
         window.location.href = '/admin-login.html';
     });
 
+    // Initialize all tabs
     loadOrders();
+    loadMenu();
+    loadUsers();
 </script>
 </body>
 </html>
