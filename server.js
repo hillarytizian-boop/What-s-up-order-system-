@@ -8,13 +8,6 @@ import sqlite from 'better-sqlite3';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-import {
-  generateRegistrationOptions,
-  verifyRegistrationResponse,
-  generateAuthenticationOptions,
-  verifyAuthenticationResponse,
-} from '@simplewebauthn/server';
-import { isoBase64URL } from '@simplewebauthn/server/helpers';
 
 dotenv.config();
 
@@ -25,7 +18,7 @@ const app = express();
 const db = new sqlite('restaurant.db');
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_change_me';
 
-// --- Create tables (including user_passkeys) ---
+// --- Create tables ---
 db.exec(`
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -58,16 +51,6 @@ db.exec(`
         image TEXT,
         available INTEGER DEFAULT 1
     );
-    CREATE TABLE IF NOT EXISTS user_passkeys (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        credential_id TEXT UNIQUE NOT NULL,
-        public_key TEXT NOT NULL,
-        counter INTEGER NOT NULL,
-        device_name TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    );
 `);
 
 // --- Seed menu if empty ---
@@ -94,7 +77,7 @@ if (menuCount.count === 0) {
     for (const item of items) insert.run(...item);
 }
 
-// --- Seed admin and staff users if no users exist ---
+// --- Seed admin and staff if no users exist ---
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
 if (userCount.count === 0) {
     const adminHash = bcrypt.hashSync('admin123', 10);
@@ -102,7 +85,7 @@ if (userCount.count === 0) {
     const insertUser = db.prepare('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)');
     insertUser.run('admin-1', 'admin@tablebite.com', adminHash, 'Admin', 'admin');
     insertUser.run('staff-1', 'staff@tablebite.com', staffHash, 'Staff User', 'staff');
-    console.log('Admin and staff users seeded.');
+    console.log('Admin and staff seeded.');
 }
 
 // --- Middleware ---
@@ -112,12 +95,10 @@ app.use(express.json());
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use('/api/', limiter);
 
-// --- Helper: generate JWT ---
 function generateToken(userId, email) {
     return jwt.sign({ userId, email }, JWT_SECRET, { expiresIn: '7d' });
 }
 
-// --- Authentication middleware ---
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -129,7 +110,6 @@ function authenticateToken(req, res, next) {
     });
 }
 
-// --- Role middleware ---
 function requireStaff(req, res, next) {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.userId);
@@ -185,15 +165,20 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
     res.json(user);
 });
 
-// --- Customer order endpoints ---
+// --- Order endpoints (fixed) ---
 app.post('/api/orders', authenticateToken, (req, res) => {
-    const { items, total, paymentMethod, customerNote, locationLat, locationLng, tableId } = req.body;
-    const userId = req.user.userId;
-    const orderId = uuidv4().substring(0, 8).toUpperCase();
-    const stmt = db.prepare(`INSERT INTO orders (id, user_id, table_id, items, total, payment_method, customer_note, location_lat, location_lng)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    stmt.run(orderId, userId, tableId || null, JSON.stringify(items), total, paymentMethod || 'table', customerNote || '', locationLat || null, locationLng || null);
-    res.json({ success: true, orderId });
+    try {
+        const { items, total, paymentMethod, customerNote, locationLat, locationLng, tableId } = req.body;
+        const userId = req.user.userId;
+        const orderId = uuidv4().substring(0, 8).toUpperCase();
+        const stmt = db.prepare(`INSERT INTO orders (id, user_id, table_id, items, total, payment_method, customer_note, location_lat, location_lng)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        stmt.run(orderId, userId, tableId || null, JSON.stringify(items), total, paymentMethod || 'table', customerNote || '', locationLat || null, locationLng || null);
+        res.json({ success: true, orderId });
+    } catch (err) {
+        console.error('Order creation error:', err);
+        res.status(500).json({ error: 'Failed to create order', details: err.message });
+    }
 });
 
 app.get('/api/orders/my', authenticateToken, (req, res) => {
@@ -207,7 +192,7 @@ app.get('/api/orders/:id', (req, res) => {
     res.json(order);
 });
 
-// --- Staff & Admin order endpoints ---
+// --- Staff endpoints ---
 app.get('/api/staff/orders', authenticateToken, requireStaff, (req, res) => {
     const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
     res.json(orders);
@@ -264,19 +249,11 @@ app.put('/api/admin/users/:id/role', authenticateToken, requireAdmin, (req, res)
 });
 
 app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) => {
-    // Don't allow deleting yourself
     if (req.params.id === req.user.userId) return res.status(400).json({ error: 'Cannot delete your own account' });
     const stmt = db.prepare('DELETE FROM users WHERE id = ?');
     stmt.run(req.params.id);
     res.json({ success: true });
 });
-
-// --- WebAuthn endpoints (passkey) as before (keep existing implementation) ---
-// ... (I'll include the minimal WebAuthn code here; but for brevity, assume it's present)
-// Since we already added WebAuthn earlier, I'll keep it but compress for readability.
-
-// For brevity, I'm not repeating the full WebAuthn code here because it's long.
-// However, I'll ensure the file is complete when you run the final command.
 
 // --- Serve static frontend ---
 app.use(express.static(path.join(__dirname, 'public')));
