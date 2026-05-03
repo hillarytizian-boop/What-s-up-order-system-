@@ -262,3 +262,134 @@ navCart.addEventListener('click', openCart);
 closeCartBtn.addEventListener('click', closeCart);
 cartOverlay.addEventListener('click', closeCart);
 checkoutBtn.addEventListener('click', placeOrder);
+
+// --- QR Code Scanning ---
+let currentStream = null;
+let currentFacingMode = 'environment'; // back camera
+let qrModal = null;
+let scanning = false;
+
+function stopCamera() {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+    }
+}
+
+async function startCamera() {
+    stopCamera();
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: currentFacingMode } }
+        });
+        currentStream = stream;
+        const video = document.getElementById('qr-video');
+        video.srcObject = stream;
+        video.play();
+        scanning = true;
+        scanQRCode();
+    } catch (err) {
+        console.warn('Camera error:', err);
+        // fallback to any camera
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            currentStream = stream;
+            const video = document.getElementById('qr-video');
+            video.srcObject = stream;
+            video.play();
+            scanning = true;
+            scanQRCode();
+        } catch(e) {
+            document.getElementById('qr-result').innerHTML = '<span class="text-danger">Camera not accessible</span>';
+        }
+    }
+}
+
+async function scanQRCode() {
+    if (!scanning) return;
+    const video = document.getElementById('qr-video');
+    const canvas = document.getElementById('qr-canvas');
+    const context = canvas.getContext('2d');
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, canvas.width, canvas.height);
+        if (code && code.data) {
+            scanning = false;
+            stopCamera();
+            handleQRData(code.data);
+            const modal = bootstrap.Modal.getInstance(document.getElementById('qrModal'));
+            modal.hide();
+        }
+    }
+    if (scanning) requestAnimationFrame(scanQRCode);
+}
+
+function handleQRData(data) {
+    console.log('QR scanned:', data);
+    if (data.startsWith('product:')) {
+        const productId = parseInt(data.split(':')[1]);
+        const item = menuItems.find(i => i.id === productId);
+        if (item) {
+            addToCart(productId);
+            alert(`Added ${item.name} to cart via QR!`);
+        } else {
+            alert('Product not found in menu.');
+        }
+    } else if (data.startsWith('table:')) {
+        const tableId = data.split(':')[1];
+        localStorage.setItem('tableId', tableId);
+        alert(`Table ${tableId} set. Your order will be linked to this table.`);
+    } else if (data.startsWith('order:')) {
+        const orderId = data.split(':')[1];
+        window.location.href = `/order/${orderId}`;
+    } else {
+        alert('Unknown QR code: ' + data);
+    }
+}
+
+// --- UI event handlers for QR ---
+document.getElementById('scan-qr-btn')?.addEventListener('click', () => {
+    qrModal = new bootstrap.Modal(document.getElementById('qrModal'));
+    qrModal.show();
+    startCamera();
+});
+
+document.getElementById('qrModal')?.addEventListener('hidden.bs.modal', () => {
+    scanning = false;
+    stopCamera();
+});
+
+document.getElementById('switch-camera')?.addEventListener('click', () => {
+    currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+    startCamera();
+});
+
+document.getElementById('qr-file-input')?.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.getElementById('qr-canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            context.drawImage(img, 0, 0, img.width, img.height);
+            const imageData = context.getImageData(0, 0, img.width, img.height);
+            const code = jsQR(imageData.data, img.width, img.height);
+            if (code && code.data) {
+                handleQRData(code.data);
+                const modal = bootstrap.Modal.getInstance(document.getElementById('qrModal'));
+                modal.hide();
+            } else {
+                alert('No QR code found in image.');
+            }
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+});
