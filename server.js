@@ -264,3 +264,9 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+
+// --- TEMPORARY DEBUG: list all orders (no auth) - REMOVE AFTER TESTING ---
+app.get('/api/debug/orders', (req, res) => {
+    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+    res.json(orders);
+});
