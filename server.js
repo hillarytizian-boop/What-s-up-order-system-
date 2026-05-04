@@ -270,3 +270,22 @@ app.get('/api/debug/orders', (req, res) => {
     const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
     res.json(orders);
 });
+
+// --- QR Code generation for tables (admin only) ---
+import qrcode from 'qrcode';
+
+app.get('/api/admin/generate-qr/:tableId', authenticateToken, requireAdmin, async (req, res) => {
+    const tableId = parseInt(req.params.tableId);
+    if (isNaN(tableId) || tableId < 1 || tableId > 100) {
+        return res.status(400).json({ error: 'Table ID must be between 1 and 100' });
+    }
+    const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
+    const url = `${baseUrl}/?table=${tableId}`;
+    try {
+        const qrBuffer = await qrcode.toBuffer(url, { width: 400, margin: 2 });
+        res.type('image/png');
+        res.send(qrBuffer);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to generate QR code' });
+    }
+});
