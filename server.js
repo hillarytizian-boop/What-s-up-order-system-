@@ -8,6 +8,7 @@ import sqlite from 'better-sqlite3';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import qrcode from 'qrcode';
 
 dotenv.config();
 
@@ -18,7 +19,6 @@ const app = express();
 const db = new sqlite('restaurant.db');
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_change_me';
 
-// --- Create tables ---
 db.exec(`
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -53,7 +53,6 @@ db.exec(`
     );
 `);
 
-// --- Seed menu if empty ---
 const menuCount = db.prepare('SELECT COUNT(*) as count FROM menu').get();
 if (menuCount.count === 0) {
     const insert = db.prepare('INSERT INTO menu (name, category, price, description, image) VALUES (?, ?, ?, ?, ?)');
@@ -77,7 +76,6 @@ if (menuCount.count === 0) {
     for (const item of items) insert.run(...item);
 }
 
-// --- Seed admin and staff users if no users exist ---
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
 if (userCount.count === 0) {
     const adminHash = bcrypt.hashSync('admin123', 10);
@@ -88,7 +86,6 @@ if (userCount.count === 0) {
     console.log('Admin and staff users seeded.');
 }
 
-// --- Middleware ---
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json());
 
@@ -124,13 +121,11 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-// --- Public API ---
 app.get('/api/menu', (req, res) => {
     const items = db.prepare('SELECT * FROM menu WHERE available = 1').all();
     res.json(items);
 });
 
-// --- Auth endpoints ---
 app.post('/api/auth/register', async (req, res) => {
     const { email, password, name } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
@@ -165,10 +160,14 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
     res.json(user);
 });
 
-// --- Order endpoints (fixed) ---
+// --- ORDER PLACEMENT (FIXED) ---
 app.post('/api/orders', authenticateToken, (req, res) => {
     try {
         const { items, total, paymentMethod, customerNote, locationLat, locationLng, tableId } = req.body;
+        console.log('Order received:', { items, total, userId: req.user.userId });
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'No items in order' });
+        }
         const userId = req.user.userId;
         const orderId = uuidv4().substring(0, 8).toUpperCase();
         const stmt = db.prepare(`INSERT INTO orders (id, user_id, table_id, items, total, payment_method, customer_note, location_lat, location_lng)
@@ -192,7 +191,6 @@ app.get('/api/orders/:id', (req, res) => {
     res.json(order);
 });
 
-// --- Staff endpoints ---
 app.get('/api/staff/orders', authenticateToken, requireStaff, (req, res) => {
     const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
     res.json(orders);
@@ -207,7 +205,6 @@ app.put('/api/staff/orders/:id/status', authenticateToken, requireStaff, (req, r
     res.json({ success: true });
 });
 
-// --- Admin full CRUD for menu ---
 app.get('/api/admin/menu', authenticateToken, requireAdmin, (req, res) => {
     const items = db.prepare('SELECT * FROM menu').all();
     res.json(items);
@@ -234,7 +231,6 @@ app.delete('/api/admin/menu/:id', authenticateToken, requireAdmin, (req, res) =>
     res.json({ success: true });
 });
 
-// --- Admin user management ---
 app.get('/api/admin/users', authenticateToken, requireAdmin, (req, res) => {
     const users = db.prepare('SELECT id, email, name, role FROM users').all();
     res.json(users);
@@ -255,25 +251,7 @@ app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, (req, res) =
     res.json({ success: true });
 });
 
-// --- Serve static frontend ---
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
-
-// --- TEMPORARY DEBUG: list all orders (no auth) - REMOVE AFTER TESTING ---
-app.get('/api/debug/orders', (req, res) => {
-    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
-    res.json(orders);
-});
-
-// --- QR Code generation for tables (admin only) ---
-import qrcode from 'qrcode';
-
+// --- QR generation for tables ---
 app.get('/api/admin/generate-qr/:tableId', authenticateToken, requireAdmin, async (req, res) => {
     const tableId = parseInt(req.params.tableId);
     if (isNaN(tableId) || tableId < 1 || tableId > 100) {
@@ -289,3 +267,17 @@ app.get('/api/admin/generate-qr/:tableId', authenticateToken, requireAdmin, asyn
         res.status(500).json({ error: 'Failed to generate QR code' });
     }
 });
+
+// Debug endpoint (remove later)
+app.get('/api/debug/orders', (req, res) => {
+    const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+    res.json(orders);
+});
+
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
