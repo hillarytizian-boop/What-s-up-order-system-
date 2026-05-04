@@ -77,7 +77,7 @@ if (menuCount.count === 0) {
     for (const item of items) insert.run(...item);
 }
 
-// --- Seed admin and staff if no users exist ---
+// --- Seed admin and staff users if no users exist ---
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
 if (userCount.count === 0) {
     const adminHash = bcrypt.hashSync('admin123', 10);
@@ -85,7 +85,7 @@ if (userCount.count === 0) {
     const insertUser = db.prepare('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)');
     insertUser.run('admin-1', 'admin@tablebite.com', adminHash, 'Admin', 'admin');
     insertUser.run('staff-1', 'staff@tablebite.com', staffHash, 'Staff User', 'staff');
-    console.log('Admin and staff seeded.');
+    console.log('Admin and staff users seeded.');
 }
 
 // --- Middleware ---

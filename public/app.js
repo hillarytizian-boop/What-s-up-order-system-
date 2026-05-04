@@ -53,7 +53,6 @@ function loadAuthFromStorage() {
     }
 }
 
-// API calls
 async function apiCall(url, options = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
@@ -175,7 +174,7 @@ async function placeOrder() {
             cart = [];
             updateCartUI();
             closeCart();
-            if (ordersModal._isShown) loadUserOrders();
+            if (window.ordersModal && ordersModal._isShown) loadUserOrders();
         } else alert('Order failed');
     } catch(err) { alert('Error placing order: ' + err.message); }
 }
@@ -204,7 +203,7 @@ async function loadUserOrders() {
     }
 }
 
-// Auth forms
+// --- Auth forms ---
 document.getElementById('login-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('login-email').value;
@@ -254,19 +253,9 @@ navOrders.addEventListener('click', () => {
     ordersModal.show();
 });
 
-// Initialize
-loadAuthFromStorage();
-loadMenu();
-navMenu.addEventListener('click', closeCart);
-navCart.addEventListener('click', openCart);
-closeCartBtn.addEventListener('click', closeCart);
-cartOverlay.addEventListener('click', closeCart);
-checkoutBtn.addEventListener('click', placeOrder);
-
-// --- QR Code Scanning ---
+// --- QR Scanning (cam + file) ---
 let currentStream = null;
-let currentFacingMode = 'environment'; // back camera
-let qrModal = null;
+let currentFacingMode = 'environment';
 let scanning = false;
 
 function stopCamera() {
@@ -284,23 +273,27 @@ async function startCamera() {
         });
         currentStream = stream;
         const video = document.getElementById('qr-video');
-        video.srcObject = stream;
-        video.play();
-        scanning = true;
-        scanQRCode();
-    } catch (err) {
-        console.warn('Camera error:', err);
-        // fallback to any camera
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            currentStream = stream;
-            const video = document.getElementById('qr-video');
+        if (video) {
             video.srcObject = stream;
             video.play();
             scanning = true;
             scanQRCode();
+        }
+    } catch (err) {
+        console.warn('Camera error:', err);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            currentStream = stream;
+            const video = document.getElementById('qr-video');
+            if (video) {
+                video.srcObject = stream;
+                video.play();
+                scanning = true;
+                scanQRCode();
+            }
         } catch(e) {
-            document.getElementById('qr-result').innerHTML = '<span class="text-danger">Camera not accessible</span>';
+            const resultDiv = document.getElementById('qr-result');
+            if (resultDiv) resultDiv.innerHTML = '<span class="text-danger">Camera not accessible</span>';
         }
     }
 }
@@ -310,18 +303,20 @@ async function scanQRCode() {
     const video = document.getElementById('qr-video');
     const canvas = document.getElementById('qr-canvas');
     const context = canvas.getContext('2d');
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, canvas.width, canvas.height);
-        if (code && code.data) {
-            scanning = false;
-            stopCamera();
-            handleQRData(code.data);
-            const modal = bootstrap.Modal.getInstance(document.getElementById('qrModal'));
-            modal.hide();
+        if (window.jsQR) {
+            const code = window.jsQR(imageData.data, canvas.width, canvas.height);
+            if (code && code.data) {
+                scanning = false;
+                stopCamera();
+                handleQRData(code.data);
+                const modalEl = document.getElementById('qrModal');
+                if (modalEl) bootstrap.Modal.getInstance(modalEl)?.hide();
+            }
         }
     }
     if (scanning) requestAnimationFrame(scanQRCode);
@@ -350,11 +345,14 @@ function handleQRData(data) {
     }
 }
 
-// --- UI event handlers for QR ---
+// --- Attach QR button events (only if elements exist) ---
 document.getElementById('scan-qr-btn')?.addEventListener('click', () => {
-    qrModal = new bootstrap.Modal(document.getElementById('qrModal'));
-    qrModal.show();
-    startCamera();
+    const modalEl = document.getElementById('qrModal');
+    if (modalEl) {
+        const qrModal = new bootstrap.Modal(modalEl);
+        qrModal.show();
+        startCamera();
+    }
 });
 
 document.getElementById('qrModal')?.addEventListener('hidden.bs.modal', () => {
@@ -380,16 +378,27 @@ document.getElementById('qr-file-input')?.addEventListener('change', (e) => {
             canvas.height = img.height;
             context.drawImage(img, 0, 0, img.width, img.height);
             const imageData = context.getImageData(0, 0, img.width, img.height);
-            const code = jsQR(imageData.data, img.width, img.height);
-            if (code && code.data) {
-                handleQRData(code.data);
-                const modal = bootstrap.Modal.getInstance(document.getElementById('qrModal'));
-                modal.hide();
-            } else {
-                alert('No QR code found in image.');
+            if (window.jsQR) {
+                const code = window.jsQR(imageData.data, img.width, img.height);
+                if (code && code.data) {
+                    handleQRData(code.data);
+                    const modalEl = document.getElementById('qrModal');
+                    if (modalEl) bootstrap.Modal.getInstance(modalEl)?.hide();
+                } else {
+                    alert('No QR code found in image.');
+                }
             }
         };
         img.src = event.target.result;
     };
     reader.readAsDataURL(file);
 });
+
+// --- Initialize ---
+loadAuthFromStorage();
+loadMenu();
+navMenu.addEventListener('click', closeCart);
+navCart.addEventListener('click', openCart);
+closeCartBtn.addEventListener('click', closeCart);
+cartOverlay.addEventListener('click', closeCart);
+checkoutBtn.addEventListener('click', placeOrder);
